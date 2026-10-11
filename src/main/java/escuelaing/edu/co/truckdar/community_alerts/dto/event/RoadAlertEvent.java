@@ -18,7 +18,12 @@ public class RoadAlertEvent {
     private String alertType;
     private String severity;
     private String title;
+    private String description;
+    /** Texto libre consolidado (título + descripción) para interpretación con IA en Route-AI-agent. */
+    private String text;
     private String roadCorridor;
+    /** Corredor de la ruta activa del conductor que reporta; hoy coincide con el corredor de la alerta. */
+    private String activeRouteCorridor;
     private Double latitude;
     private Double longitude;
     private Double maxClearanceMeters;

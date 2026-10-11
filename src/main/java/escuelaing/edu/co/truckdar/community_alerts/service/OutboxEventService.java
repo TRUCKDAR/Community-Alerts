@@ -32,7 +32,10 @@ public class OutboxEventService {
                 .alertType(alert.getAlertType().name())
                 .severity(alert.getSeverity().name())
                 .title(alert.getTitle())
+                .description(alert.getDescription())
+                .text(freeText(alert))
                 .roadCorridor(alert.getRoadCorridor())
+                .activeRouteCorridor(alert.getRoadCorridor())
                 .latitude(alert.getLatitude())
                 .longitude(alert.getLongitude())
                 .maxClearanceMeters(alert.getMaxClearanceMeters())
@@ -65,6 +68,13 @@ public class OutboxEventService {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("No se pudo serializar el evento de alerta para Outbox", exception);
         }
+    }
+
+    private String freeText(RoadAlert alert) {
+        String title = alert.getTitle() == null ? "" : alert.getTitle().trim();
+        String description = alert.getDescription() == null ? "" : alert.getDescription().trim();
+        String text = title.isEmpty() || description.isEmpty() ? title + description : title + ". " + description;
+        return text.isEmpty() ? null : text;
     }
 
     private UUID correlationId(String clientAlertId) {
