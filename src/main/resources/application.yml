@@ -24,3 +24,19 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+truckdar:
+  kafka:
+    topic:
+      road-alerts: ${TRUCKDAR_ROAD_ALERTS_TOPIC:truckdar.events.road-alerts}
+  outbox:
+    publish-interval-ms: ${TRUCKDAR_OUTBOX_PUBLISH_INTERVAL_MS:1000}
+    batch-size: ${TRUCKDAR_OUTBOX_BATCH_SIZE:100}
+  alerts:
+    dedup:
+      radius-meters: ${TRUCKDAR_ALERT_DEDUP_RADIUS_METERS:500}
+      window-minutes: ${TRUCKDAR_ALERT_DEDUP_WINDOW_MINUTES:30}
+    validation-threshold: ${TRUCKDAR_ALERT_VALIDATION_THRESHOLD:3}
+    ttl:
+      default-hours: ${TRUCKDAR_ALERT_TTL_DEFAULT_HOURS:24}
+      derrumbe-hours: ${TRUCKDAR_ALERT_TTL_DERRUMBE_HOURS:6}

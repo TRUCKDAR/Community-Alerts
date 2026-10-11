@@ -1,20 +1,18 @@
 package escuelaing.edu.co.truckdar.community_alerts.service;
 
-import escuelaing.edu.co.truckdar.community_alerts.dto.event.RoadAlertEvent;
 import escuelaing.edu.co.truckdar.community_alerts.dto.request.CreateRoadAlertRequest;
 import escuelaing.edu.co.truckdar.community_alerts.dto.request.OfflineBatchSyncRequest;
 import escuelaing.edu.co.truckdar.community_alerts.dto.response.RoadAlertResponse;
 import escuelaing.edu.co.truckdar.community_alerts.dto.response.SyncSummaryResponse;
 import escuelaing.edu.co.truckdar.community_alerts.exception.AlertNotFoundException;
 import escuelaing.edu.co.truckdar.community_alerts.model.RoadAlert;
+import escuelaing.edu.co.truckdar.community_alerts.model.AlertType;
 import escuelaing.edu.co.truckdar.community_alerts.repository.RoadAlertRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.Point;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,10 +29,22 @@ public class RoadAlertService implements IRoadAlertService {
 
     private final RoadAlertRepository repository;
     private final GeometryFactory geometryFactory;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final OutboxEventService outboxEventService;
 
-    @Value("${truckdar.kafka.topic.road-alerts:truckdar.events.road-alerts}")
-    private String roadAlertsTopic;
+    @org.springframework.beans.factory.annotation.Value("${truckdar.alerts.dedup.radius-meters:500}")
+    private double dedupRadiusMeters;
+
+    @org.springframework.beans.factory.annotation.Value("${truckdar.alerts.dedup.window-minutes:30}")
+    private long dedupWindowMinutes;
+
+    @org.springframework.beans.factory.annotation.Value("${truckdar.alerts.validation-threshold:3}")
+    private int validationThreshold;
+
+    @org.springframework.beans.factory.annotation.Value("${truckdar.alerts.ttl.default-hours:24}")
+    private long defaultTtlHours;
+
+    @org.springframework.beans.factory.annotation.Value("${truckdar.alerts.ttl.derrumbe-hours:6}")
+    private long derrumbeTtlHours;
 
     @Override
     @Transactional
@@ -46,6 +56,26 @@ public class RoadAlertService implements IRoadAlertService {
 
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime reportedAt = request.getReportedAt() != null ? request.getReportedAt() : now;
+
+        RoadAlert duplicate = repository.findRecentDuplicate(
+                request.getAlertType().name(),
+                request.getLatitude(),
+                request.getLongitude(),
+                reportedAt.minusMinutes(dedupWindowMinutes),
+                dedupRadiusMeters
+        ).orElse(null);
+        if (duplicate != null) {
+            duplicate.setConfirmationsCount(duplicate.getConfirmationsCount() + 1);
+            duplicate.setSyncedAt(now);
+            RoadAlert confirmed = repository.save(duplicate);
+            outboxEventService.enqueueAlertEvent(confirmed, "alert.confirmed", "CONFIRMED");
+            if (confirmed.getConfirmationsCount() >= validationThreshold) {
+                outboxEventService.enqueueAlertEvent(confirmed, "alert.validated", "VALIDATED");
+            }
+            log.info("Alerta duplicada asociada a #{}; confianza={}", confirmed.getId(),
+                    confirmed.getConfirmationsCount());
+            return mapToResponse(confirmed);
+        }
 
         RoadAlert alert = RoadAlert.builder()
                 .clientAlertId(clientAlertId)
@@ -67,7 +97,7 @@ public class RoadAlertService implements IRoadAlertService {
                 .build();
 
         RoadAlert saved = repository.save(alert);
-        publishKafkaEvent(saved, "CREATED");
+        outboxEventService.enqueueAlertEvent(saved, "alert.reported", "CREATED");
         log.info("Alerta vial creada [{}] en corredor: {}", saved.getAlertType(), saved.getRoadCorridor());
 
         return mapToResponse(saved);
@@ -82,7 +112,7 @@ public class RoadAlertService implements IRoadAlertService {
         alert.setConfirmationsCount(alert.getConfirmationsCount() + 1);
         RoadAlert updated = repository.save(alert);
 
-        publishKafkaEvent(updated, "CONFIRMED");
+        outboxEventService.enqueueAlertEvent(updated, "alert.confirmed", "CONFIRMED");
         return mapToResponse(updated);
     }
 
@@ -91,6 +121,7 @@ public class RoadAlertService implements IRoadAlertService {
     public List<RoadAlertResponse> getNearbyAlerts(double latitude, double longitude, double radiusMeters) {
         return repository.findActiveAlertsWithinRadius(latitude, longitude, radiusMeters)
                 .stream()
+                .filter(this::isActiveWithinTtl)
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -100,6 +131,7 @@ public class RoadAlertService implements IRoadAlertService {
     public List<RoadAlertResponse> getAllActiveAlerts() {
         return repository.findByIsActiveTrueOrderByReportedAtDesc()
                 .stream()
+                .filter(this::isActiveWithinTtl)
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -132,26 +164,6 @@ public class RoadAlertService implements IRoadAlertService {
                 .build();
     }
 
-    private void publishKafkaEvent(RoadAlert alert, String action) {
-        RoadAlertEvent event = RoadAlertEvent.builder()
-                .alertId(alert.getId())
-                .clientAlertId(alert.getClientAlertId())
-                .driverId(alert.getDriverId())
-                .alertType(alert.getAlertType().name())
-                .severity(alert.getSeverity().name())
-                .title(alert.getTitle())
-                .roadCorridor(alert.getRoadCorridor())
-                .latitude(alert.getLatitude())
-                .longitude(alert.getLongitude())
-                .maxClearanceMeters(alert.getMaxClearanceMeters())
-                .confirmationsCount(alert.getConfirmationsCount())
-                .eventAction(action)
-                .timestamp(LocalDateTime.now())
-                .build();
-
-        kafkaTemplate.send(roadAlertsTopic, alert.getAlertType().name(), event);
-    }
-
     private RoadAlertResponse mapToResponse(RoadAlert entity) {
         return RoadAlertResponse.builder()
                 .id(entity.getId())
@@ -171,5 +183,17 @@ public class RoadAlertService implements IRoadAlertService {
                 .reportedAt(entity.getReportedAt())
                 .syncedAt(entity.getSyncedAt())
                 .build();
+    }
+
+    private boolean isActiveWithinTtl(RoadAlert alert) {
+        LocalDateTime expiresAt = alert.getReportedAt().plusHours(ttlHours(alert.getAlertType()));
+        return expiresAt.isAfter(LocalDateTime.now());
+    }
+
+    private long ttlHours(AlertType alertType) {
+        return switch (alertType) {
+            case DERRUMBE -> derrumbeTtlHours;
+            default -> defaultTtlHours;
+        };
     }
 }

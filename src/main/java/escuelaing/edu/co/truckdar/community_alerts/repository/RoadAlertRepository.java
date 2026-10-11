@@ -9,11 +9,33 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 @Repository
 public interface RoadAlertRepository extends JpaRepository<RoadAlert, Long> {
 
     Optional<RoadAlert> findByClientAlertId(String clientAlertId);
+
+    @Query(value = """
+        SELECT * FROM road_alerts a
+        WHERE a.is_active = true
+          AND a.alert_type = :alertType
+          AND a.reported_at >= :since
+          AND ST_DWithin(
+              a.location::geography,
+              ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography,
+              :radiusMeters
+          )
+        ORDER BY a.reported_at DESC
+        LIMIT 1
+        """, nativeQuery = true)
+    Optional<RoadAlert> findRecentDuplicate(
+            @Param("alertType") String alertType,
+            @Param("latitude") double latitude,
+            @Param("longitude") double longitude,
+            @Param("since") LocalDateTime since,
+            @Param("radiusMeters") double radiusMeters
+    );
 
     @Query(value = """
         SELECT * FROM road_alerts a
