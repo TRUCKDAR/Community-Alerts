@@ -20,7 +20,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "outbox_events", indexes = {
+@Table(name = "community_alerts_outbox_events", indexes = {
         @Index(name = "idx_alert_outbox_unpublished", columnList = "published_at, created_at")
 })
 public class OutboxEvent {
