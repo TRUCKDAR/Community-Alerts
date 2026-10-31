@@ -19,6 +19,16 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
+  flyway:
+    enabled: true
+    # truckcar_db es compartida: historial propio para no mezclar versiones con otros servicios.
+    table: flyway_schema_history_community_alerts
+    # En una base existente (tablas creadas por Hibernate) la línea base es 0, así V1 (idempotente) sí se aplica
+    # y crea los índices espaciales; con la línea base por defecto (1) se omitiría.
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+
   kafka:
     bootstrap-servers: localhost:9092
     producer:
