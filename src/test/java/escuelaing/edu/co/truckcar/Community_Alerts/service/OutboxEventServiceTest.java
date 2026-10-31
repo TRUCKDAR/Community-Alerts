@@ -8,11 +8,14 @@ import escuelaing.edu.co.truckcar.community_alerts.model.OutboxEvent;
 import escuelaing.edu.co.truckcar.community_alerts.model.RoadAlert;
 import escuelaing.edu.co.truckcar.community_alerts.repository.OutboxEventRepository;
 import escuelaing.edu.co.truckcar.community_alerts.service.OutboxEventService;
+import escuelaing.edu.co.truckcar.community_alerts.service.OutboxTracing;
+import io.micrometer.tracing.Tracer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
@@ -26,7 +29,8 @@ class OutboxEventServiceTest {
     @Test
     void enqueuesSerializedReportedAlertEnvelope() {
         OutboxEventService service = new OutboxEventService(repository,
-                new ObjectMapper().registerModule(new JavaTimeModule()));
+                new ObjectMapper().registerModule(new JavaTimeModule()),
+                new OutboxTracing(new StaticListableBeanFactory().getBeanProvider(Tracer.class)));
         RoadAlert alert = RoadAlert.builder()
                 .id(42L)
                 .clientAlertId("client-alert-42")

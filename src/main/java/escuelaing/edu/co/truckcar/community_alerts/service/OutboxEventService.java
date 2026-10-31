@@ -22,6 +22,7 @@ public class OutboxEventService {
 
     private final OutboxEventRepository repository;
     private final ObjectMapper objectMapper;
+    private final OutboxTracing tracing;
 
     @Transactional
     public void enqueueAlertEvent(RoadAlert alert, String eventType, String eventAction) {
@@ -64,6 +65,8 @@ public class OutboxEventService {
                     .occurredAt(envelope.getOccurredAt())
                     .createdAt(Instant.now())
                     .attempts(0)
+                    .traceParent(tracing.currentTraceParent())
+                    .correlationId(tracing.currentCorrelationId())
                     .build());
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("No se pudo serializar el evento de alerta para Outbox", exception);
