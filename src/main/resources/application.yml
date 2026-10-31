@@ -6,14 +6,17 @@ spring:
     name: ms-community-alerts
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/truckcar_db
+    # Fuera de Docker (IDE/tests) la conexión es directa y el esquema va en currentSchema (public: tipos PostGIS).
+    # En Docker se pasa por PgBouncer y el search_path lo fija el rol del servicio.
+    url: jdbc:postgresql://localhost:5432/truckcar_db?currentSchema=community_alerts,public
     username: truckcar_admin
     password: truckcar_password
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # El esquema lo gestiona Flyway (db/migration); Hibernate solo comprueba que coincida con las entidades.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
@@ -21,8 +24,9 @@ spring:
 
   flyway:
     enabled: true
-    # truckcar_db es compartida: historial propio para no mezclar versiones con otros servicios.
-    table: flyway_schema_history_community_alerts
+    # Esquema propio del servicio (rol y esquema creados por db-init); el historial de Flyway vive en él.
+    schemas: community_alerts
+    default-schema: community_alerts
     # En una base existente (tablas creadas por Hibernate) la línea base es 0, así V1 (idempotente) sí se aplica
     # y crea los índices espaciales; con la línea base por defecto (1) se omitiría.
     baseline-on-migrate: true
