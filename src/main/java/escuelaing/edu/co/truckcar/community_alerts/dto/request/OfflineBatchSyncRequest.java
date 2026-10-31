@@ -1,7 +1,6 @@
 package escuelaing.edu.co.truckcar.community_alerts.dto.request;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,7 +15,7 @@ import java.util.List;
 @AllArgsConstructor
 public class OfflineBatchSyncRequest {
 
-    @NotBlank(message = "El ID del conductor es obligatorio")
+    /** Lo fija RoadAlertController con el X-Auth-User del gateway; el valor que envíe el cliente se descarta. */
     private String driverId;
 
     @NotEmpty(message = "El lote de alertas no puede estar vacío")

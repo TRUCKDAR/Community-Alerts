@@ -4,9 +4,12 @@ import escuelaing.edu.co.truckcar.community_alerts.dto.request.CreateRoadAlertRe
 import escuelaing.edu.co.truckcar.community_alerts.dto.request.OfflineBatchSyncRequest;
 import escuelaing.edu.co.truckcar.community_alerts.dto.response.RoadAlertResponse;
 import escuelaing.edu.co.truckcar.community_alerts.dto.response.SyncSummaryResponse;
+import escuelaing.edu.co.truckcar.community_alerts.exception.AlertAlreadyConfirmedException;
 import escuelaing.edu.co.truckcar.community_alerts.exception.AlertNotFoundException;
 import escuelaing.edu.co.truckcar.community_alerts.model.RoadAlert;
 import escuelaing.edu.co.truckcar.community_alerts.model.AlertType;
+import escuelaing.edu.co.truckcar.community_alerts.model.RoadAlertConfirmation;
+import escuelaing.edu.co.truckcar.community_alerts.repository.RoadAlertConfirmationRepository;
 import escuelaing.edu.co.truckcar.community_alerts.repository.RoadAlertRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +33,7 @@ public class RoadAlertService implements IRoadAlertService {
     private final RoadAlertRepository repository;
     private final GeometryFactory geometryFactory;
     private final OutboxEventService outboxEventService;
+    private final RoadAlertConfirmationRepository confirmationRepository;
 
     @org.springframework.beans.factory.annotation.Value("${truckcar.alerts.dedup.radius-meters:500}")
     private double dedupRadiusMeters;
@@ -65,6 +69,12 @@ public class RoadAlertService implements IRoadAlertService {
                 dedupRadiusMeters
         ).orElse(null);
         if (duplicate != null) {
+            // Un segundo reporte del mismo conductor sobre el mismo incidente no suma otra confirmación.
+            if (!recordVote(duplicate.getId(), request.getDriverId())) {
+                log.info("Reporte repetido de {} sobre la alerta #{}: no suma confianza", request.getDriverId(),
+                        duplicate.getId());
+                return mapToResponse(duplicate);
+            }
             duplicate.setConfirmationsCount(duplicate.getConfirmationsCount() + 1);
             duplicate.setSyncedAt(now);
             RoadAlert confirmed = repository.save(duplicate);
@@ -97,6 +107,8 @@ public class RoadAlertService implements IRoadAlertService {
                 .build();
 
         RoadAlert saved = repository.save(alert);
+        // El reporte cuenta como el voto de su autor: no puede confirmar su propia alerta después.
+        recordVote(saved.getId(), saved.getDriverId());
         outboxEventService.enqueueAlertEvent(saved, "alert.reported", "CREATED");
         log.info("Alerta vial creada [{}] en corredor: {}", saved.getAlertType(), saved.getRoadCorridor());
 
@@ -105,15 +117,38 @@ public class RoadAlertService implements IRoadAlertService {
 
     @Override
     @Transactional
-    public RoadAlertResponse confirmAlert(Long alertId) {
+    public RoadAlertResponse confirmAlert(Long alertId, String userId) {
         RoadAlert alert = repository.findById(alertId)
                 .orElseThrow(() -> new AlertNotFoundException("Alerta no encontrada con ID: " + alertId));
 
+        if (!recordVote(alertId, userId)) {
+            throw new AlertAlreadyConfirmedException("El usuario ya confirmó o reportó la alerta #" + alertId);
+        }
         alert.setConfirmationsCount(alert.getConfirmationsCount() + 1);
         RoadAlert updated = repository.save(alert);
 
         outboxEventService.enqueueAlertEvent(updated, "alert.confirmed", "CONFIRMED");
+        // Igual que al asociar un reporte duplicado: al alcanzar el umbral la alerta queda validada.
+        if (updated.getConfirmationsCount() == validationThreshold) {
+            outboxEventService.enqueueAlertEvent(updated, "alert.validated", "VALIDATED");
+        }
         return mapToResponse(updated);
+    }
+
+    /**
+     * Registra el voto de un usuario sobre una alerta; false si ya votó. La clave primaria (alert_id, user_id) rechaza
+     * además un voto concurrente del mismo usuario al confirmar la transacción.
+     */
+    private boolean recordVote(Long alertId, String userId) {
+        if (confirmationRepository.existsByAlertIdAndUserId(alertId, userId)) {
+            return false;
+        }
+        confirmationRepository.save(RoadAlertConfirmation.builder()
+                .alertId(alertId)
+                .userId(userId)
+                .confirmedAt(LocalDateTime.now())
+                .build());
+        return true;
     }
 
     @Override

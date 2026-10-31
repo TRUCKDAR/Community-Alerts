@@ -19,7 +19,7 @@ public class CreateRoadAlertRequest {
 
     private String clientAlertId;
 
-    @NotBlank(message = "El ID del conductor es obligatorio")
+    /** Lo fija RoadAlertController con el X-Auth-User del gateway; el valor que envíe el cliente se descarta. */
     private String driverId;
 
     private String driverName;

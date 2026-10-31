@@ -9,7 +9,8 @@ import java.util.List;
 
 public interface IRoadAlertService {
     RoadAlertResponse createAlert(CreateRoadAlertRequest request);
-    RoadAlertResponse confirmAlert(Long alertId);
+    /** Suma la confirmación de userId; AlertAlreadyConfirmedException si ya confirmó o es el autor. */
+    RoadAlertResponse confirmAlert(Long alertId, String userId);
     List<RoadAlertResponse> getNearbyAlerts(double latitude, double longitude, double radiusMeters);
     List<RoadAlertResponse> getAllActiveAlerts();
     SyncSummaryResponse syncOfflineBatch(OfflineBatchSyncRequest batchRequest);
