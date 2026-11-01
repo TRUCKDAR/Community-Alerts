@@ -4,9 +4,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import escuelaing.edu.co.truckcar.community_alerts.dto.request.CreateRoadAlertRequest;
+import escuelaing.edu.co.truckcar.community_alerts.dto.request.SosRequest;
 import escuelaing.edu.co.truckcar.community_alerts.exception.AlertAlreadyConfirmedException;
 import escuelaing.edu.co.truckcar.community_alerts.exception.AlertNotFoundException;
 import escuelaing.edu.co.truckcar.community_alerts.service.IRoadAlertService;
+import escuelaing.edu.co.truckcar.community_alerts.service.SosService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +34,8 @@ public class AlertSyncService {
 
     public static final String ALERT_REPORTED = "alert.reported";
     public static final String ALERT_CONFIRMED = "alert.confirmed";
+    /** SOS pedido sin señal: se registra con la hora del dispositivo al reconectar. */
+    public static final String ALERT_SOS = "alert.sos";
 
     private static final Comparator<SyncBatchRequest.Event> CHRONOLOGICAL = Comparator
             .comparing(SyncBatchRequest.Event::getOccurredAt)
@@ -39,15 +43,17 @@ public class AlertSyncService {
 
     private final IngestionLedger ledger;
     private final IRoadAlertService alertService;
+    private final SosService sosService;
     private final ObjectMapper objectMapper;
     private final Validator validator;
     private final TransactionTemplate transaction;
     private final TransactionTemplate separateTransaction;
 
-    public AlertSyncService(IngestionLedger ledger, IRoadAlertService alertService, ObjectMapper objectMapper,
-                            Validator validator, PlatformTransactionManager transactionManager) {
+    public AlertSyncService(IngestionLedger ledger, IRoadAlertService alertService, SosService sosService,
+                            ObjectMapper objectMapper, Validator validator, PlatformTransactionManager transactionManager) {
         this.ledger = ledger;
         this.alertService = alertService;
+        this.sosService = sosService;
         this.objectMapper = objectMapper;
         this.validator = validator;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -100,9 +106,29 @@ public class AlertSyncService {
                 }
                 alertService.confirmAlert(alertId.asLong(), driverId);
             }
+            case ALERT_SOS -> {
+                SosRequest sos = validated(event.getPayload(), SosRequest.class, "SOS mal formado");
+                sos.setClientEventId(event.getClientEventId());
+                sosService.trigger(driverId, sos, event.getOccurredAt());
+            }
             default -> throw new IllegalArgumentException("Tipo de evento no admitido por Community-Alerts: "
                     + event.getKind());
         }
+    }
+
+    private <T> T validated(JsonNode payload, Class<T> type, String invalidMessage) {
+        T value;
+        try {
+            value = objectMapper.treeToValue(payload, type);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(invalidMessage + ": " + e.getOriginalMessage());
+        }
+        Set<ConstraintViolation<T>> violations = validator.validate(value);
+        if (!violations.isEmpty()) {
+            throw new IllegalArgumentException(violations.stream().map(ConstraintViolation::getMessage)
+                    .sorted().collect(Collectors.joining("; ")));
+        }
+        return value;
     }
 
     private CreateRoadAlertRequest alertOf(JsonNode payload) {

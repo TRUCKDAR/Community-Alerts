@@ -33,6 +33,11 @@ public class GlobalExceptionHandler {
         return simpleError(HttpStatus.CONFLICT, "Alerta ya confirmada", ex.getMessage());
     }
 
+    @ExceptionHandler(SosAccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleSosAccessDenied(SosAccessDeniedException ex) {
+        return simpleError(HttpStatus.FORBIDDEN, "Acceso denegado", ex.getMessage());
+    }
+
     @ExceptionHandler(AlertUnauthenticatedException.class)
     public ResponseEntity<Map<String, Object>> handleUnauthenticated(AlertUnauthenticatedException ex) {
         return simpleError(HttpStatus.UNAUTHORIZED, "Usuario no autenticado", ex.getMessage());

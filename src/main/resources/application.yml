@@ -44,6 +44,8 @@ truckcar:
   kafka:
     topic:
       road-alerts: ${TRUCKCAR_ROAD_ALERTS_TOPIC:truckcar.events.road-alerts}
+      # Botón SOS: tópico de alta prioridad (Notifications y torre de control).
+      sos: ${TRUCKCAR_SOS_TOPIC:truckcar.events.sos}
   outbox:
     publish-interval-ms: ${TRUCKCAR_OUTBOX_PUBLISH_INTERVAL_MS:1000}
     batch-size: ${TRUCKCAR_OUTBOX_BATCH_SIZE:100}

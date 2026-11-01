@@ -61,4 +61,8 @@ public class OutboxEvent {
 
     @Column(name = "correlation_id", length = 100)
     private String correlationId;
+
+    /** Tópico de Kafka del evento; vacío = tópico de alertas viales (truckcar.kafka.topic.road-alerts). */
+    @Column(length = 200)
+    private String topic;
 }

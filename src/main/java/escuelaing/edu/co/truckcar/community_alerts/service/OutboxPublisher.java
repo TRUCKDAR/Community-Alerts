@@ -69,7 +69,7 @@ public class OutboxPublisher {
         tracing.publishInTrace(outboxEvent.getTraceParent(), outboxEvent.getCorrelationId(),
                 "outbox publish " + outboxEvent.getEventType(), () -> {
                     try {
-                        kafkaTemplate.send(roadAlertsTopic, outboxEvent.getAggregateId(), envelope).get(10, TimeUnit.SECONDS);
+                        kafkaTemplate.send(topicOf(outboxEvent), outboxEvent.getAggregateId(), envelope).get(10, TimeUnit.SECONDS);
                     } catch (InterruptedException | ExecutionException | TimeoutException e) {
                         failure[0] = e;
                     }
@@ -85,10 +85,14 @@ public class OutboxPublisher {
         }
     }
 
+    private String topicOf(OutboxEvent outboxEvent) {
+        return outboxEvent.getTopic() == null || outboxEvent.getTopic().isBlank() ? roadAlertsTopic : outboxEvent.getTopic();
+    }
+
     @Transactional
     protected void markPublished(OutboxEvent outboxEvent) {
         repository.markPublished(outboxEvent.getId(), Instant.now());
-        log.info("Evento Outbox {} publicado en {}", outboxEvent.getId(), roadAlertsTopic);
+        log.info("Evento Outbox {} publicado en {}", outboxEvent.getId(), topicOf(outboxEvent));
     }
 
     @Transactional

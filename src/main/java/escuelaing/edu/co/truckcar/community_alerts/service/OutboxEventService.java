@@ -4,10 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import escuelaing.edu.co.truckcar.community_alerts.dto.event.EventEnvelope;
 import escuelaing.edu.co.truckcar.community_alerts.dto.event.RoadAlertEvent;
+import escuelaing.edu.co.truckcar.community_alerts.dto.response.SosAlertResponse;
 import escuelaing.edu.co.truckcar.community_alerts.model.OutboxEvent;
+import escuelaing.edu.co.truckcar.community_alerts.model.SosAlert;
 import escuelaing.edu.co.truckcar.community_alerts.model.RoadAlert;
 import escuelaing.edu.co.truckcar.community_alerts.repository.OutboxEventRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +26,10 @@ public class OutboxEventService {
     private final OutboxEventRepository repository;
     private final ObjectMapper objectMapper;
     private final OutboxTracing tracing;
+
+    /** Tópico de alta prioridad de los SOS (Notifications y la torre de control). */
+    @Value("${truckcar.kafka.topic.sos:truckcar.events.sos}")
+    private String sosTopic;
 
     @Transactional
     public void enqueueAlertEvent(RoadAlert alert, String eventType, String eventAction) {
@@ -85,6 +92,37 @@ public class OutboxEventService {
             return UUID.fromString(clientAlertId);
         } catch (IllegalArgumentException exception) {
             return UUID.nameUUIDFromBytes(clientAlertId.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    /** Evento de SOS (alert.sos.triggered / alert.sos.acknowledged) en el tópico de alta prioridad. */
+    @Transactional
+    public void enqueueSosEvent(SosAlert sos, String eventType) {
+        EventEnvelope<SosAlertResponse> envelope = EventEnvelope.<SosAlertResponse>builder()
+                .eventId(UUID.randomUUID())
+                .eventType(eventType)
+                .occurredAt(Instant.now())
+                .correlationId(sos.getClientEventId() != null ? sos.getClientEventId() : UUID.randomUUID())
+                .version(1)
+                .producer("community-alerts")
+                .payload(SosAlertResponse.of(sos))
+                .build();
+        try {
+            repository.save(OutboxEvent.builder()
+                    .id(envelope.getEventId())
+                    .aggregateType("SosAlert")
+                    .aggregateId(sos.getId().toString())
+                    .eventType(eventType)
+                    .payload(objectMapper.writeValueAsString(envelope))
+                    .occurredAt(envelope.getOccurredAt())
+                    .createdAt(Instant.now())
+                    .attempts(0)
+                    .topic(sosTopic)
+                    .traceParent(tracing.currentTraceParent())
+                    .correlationId(tracing.currentCorrelationId())
+                    .build());
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("No se pudo serializar el evento SOS para Outbox", exception);
         }
     }
 }
